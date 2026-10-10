@@ -1,0 +1,81 @@
+
+@startuml
+title Raízes do Nordeste - Diagrama Entidade-Relacionamento
+hide methods
+hide stereotypes
+
+entity "unidades" as unidades {
+  * id : SERIAL <<PK>>
+  --
+  nome : VARCHAR
+  endereco : TEXT
+}
+
+entity "usuarios" as usuarios {
+  * id : SERIAL <<PK>>
+  --
+  perfil_id : INTEGER <<FK>>
+  unidade_id : INTEGER <<FK>>
+  nome : VARCHAR
+  email : VARCHAR
+}
+
+entity "clientes" as clientes {
+  * id : SERIAL <<PK>>
+  --
+  nome : VARCHAR
+  email : VARCHAR
+}
+
+entity "categorias" as categorias {
+  * id : SERIAL <<PK>>
+  --
+  nome : VARCHAR
+}
+
+entity "produtos" as produtos {
+  * id : SERIAL <<PK>>
+  --
+  categoria_id : INTEGER <<FK>>
+  nome : VARCHAR
+  preco : NUMERIC
+}
+
+entity "pedidos" as pedidos {
+  * id : SERIAL <<PK>>
+  --
+  unidade_id : INTEGER <<FK>>
+  cliente_id : INTEGER <<FK>>
+  usuario_id : INTEGER <<FK>>
+  status : VARCHAR
+  valor_total : NUMERIC
+}
+
+entity "itens_pedido" as itens_pedido {
+  * id : SERIAL <<PK>>
+  --
+  pedido_id : INTEGER <<FK>>
+  produto_id : INTEGER <<FK>>
+  quantidade : INTEGER
+  preco_unitario : NUMERIC
+}
+
+entity "pagamentos" as pagamentos {
+  * id : SERIAL <<PK>>
+  --
+  pedido_id : INTEGER <<FK>>
+  metodo : VARCHAR
+  status : VARCHAR
+  valor : NUMERIC
+}
+
+categorias ||--o{ produtos
+unidades ||--o{ usuarios
+unidades ||--o{ pedidos
+clientes |o--o{ pedidos
+usuarios |o--o{ pedidos
+pedidos ||--|{ itens_pedido
+produtos ||--o{ itens_pedido
+pedidos ||--o{ pagamentos
+
+@enduml

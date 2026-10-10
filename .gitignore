@@ -1,0 +1,7 @@
+node_modules/
+.env
+.pgdata/
+uploads/*
+!uploads/.gitkeep
+*.log
+coverage/

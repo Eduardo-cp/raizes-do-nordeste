@@ -1,0 +1,563 @@
+openapi: 3.0.3
+info:
+  title: Raízes do Nordeste - API de Gestão
+  version: 1.0.0
+  description: |
+    API REST do sistema de gestão da rede de lanchonetes **Raízes do Nordeste**.
+
+    **Autenticação:** `POST /auth/login` (funcionários) ou `POST /auth/clientes/login` (clientes) retornam um
+    token JWT. Clique em **Authorize** e informe o token.
+
+    **Usuários de demonstração** (senha `Raizes@2026`): `admin@raizes.com.br`, `gerente.recife@raizes.com.br`,
+    `atendente.recife@raizes.com.br`, `cozinha.recife@raizes.com.br`. Cliente: `maria@exemplo.com` / `Cliente@2026`.
+
+    **Erros** seguem o formato `{ "erro": "mensagem", "detalhes": [...] }`.
+    Códigos: 400 dados inválidos · 401 não autenticado · 403 sem permissão · 404 não encontrado ·
+    409 conflito de regra de negócio (ex.: estoque insuficiente, transição inválida) · 423 conta bloqueada ·
+    502 falha no provedor de pagamento.
+servers:
+  - url: /api
+security:
+  - bearer: []
+tags:
+  - name: Autenticação
+  - name: Unidades e cardápio
+  - name: Usuários e perfis
+  - name: Clientes
+  - name: LGPD
+  - name: Catálogo
+  - name: Estoque
+  - name: Pedidos
+  - name: Pagamentos
+  - name: Relatórios
+  - name: Caixa e auditoria
+  - name: Sistema
+
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: integer } }
+    unidade: { name: unidade_id, in: query, schema: { type: integer }, description: 'Somente usuários da rede podem escolher; usuários de unidade são restritos à própria.' }
+    inicio: { name: inicio, in: query, schema: { type: string, format: date }, description: 'Padrão: 30 dias atrás' }
+    fim: { name: fim, in: query, schema: { type: string, format: date }, description: 'Padrão: hoje (inclusivo)' }
+    pagina: { name: pagina, in: query, schema: { type: integer, default: 1 } }
+    limite: { name: limite, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+    formato: { name: formato, in: query, schema: { type: string, enum: [json, csv] } }
+  responses:
+    Erro:
+      description: Erro
+      content: { application/json: { schema: { $ref: '#/components/schemas/Erro' } } }
+  schemas:
+    Erro:
+      type: object
+      properties:
+        erro: { type: string }
+        detalhes: {}
+    Login:
+      type: object
+      required: [email, senha]
+      properties:
+        email: { type: string, example: atendente.recife@raizes.com.br }
+        senha: { type: string, example: Raizes@2026 }
+    RegistroCliente:
+      type: object
+      required: [nome, email, senha, consentimento_termos]
+      properties:
+        nome: { type: string }
+        email: { type: string }
+        senha: { type: string, description: 'mín. 8 caracteres com letras e números' }
+        telefone: { type: string }
+        preferencias: { type: object }
+        consentimento_termos: { type: boolean, enum: [true] }
+        consentimento_marketing: { type: boolean, default: false }
+    NovoPedido:
+      type: object
+      required: [itens]
+      properties:
+        unidade_id: { type: integer, description: 'Obrigatório para clientes e usuários da rede' }
+        cliente_id: { type: integer, description: 'Funcionário: vincula o pedido a um cliente cadastrado' }
+        canal: { type: string, enum: [BALCAO, APP, DELIVERY, TOTEM] }
+        itens:
+          type: array
+          items:
+            type: object
+            required: [produto_id, quantidade]
+            properties:
+              produto_id: { type: integer }
+              quantidade: { type: integer, minimum: 1, maximum: 50 }
+              observacao: { type: string }
+        observacao: { type: string }
+        endereco_entrega: { type: string, description: 'Obrigatório para DELIVERY' }
+      example: { unidade_id: 1, canal: APP, itens: [{ produto_id: 2, quantidade: 2 }, { produto_id: 9, quantidade: 1 }] }
+    Pedido:
+      type: object
+      properties:
+        id: { type: integer }
+        codigo_acompanhamento: { type: string, format: uuid }
+        unidade_id: { type: integer }
+        cliente_id: { type: integer, nullable: true }
+        canal: { type: string }
+        status: { type: string, enum: [AGUARDANDO_PAGAMENTO, PAGAMENTO_RECUSADO, PAGO, EM_PREPARO, PRONTO, SAIU_PARA_ENTREGA, ENTREGUE, CANCELADO] }
+        total: { type: number }
+        itens: { type: array, items: { type: object } }
+        historico: { type: array, items: { type: object } }
+        pagamentos: { type: array, items: { $ref: '#/components/schemas/Pagamento' } }
+    NovoPagamento:
+      type: object
+      required: [metodo]
+      properties:
+        metodo: { type: string, enum: [PIX, CARTAO_CREDITO, CARTAO_DEBITO, DINHEIRO] }
+        cartao:
+          type: object
+          description: |
+            Apenas o TOKEN gerado pelo provedor (nunca o número do cartão).
+            Gateway simulado: `tok_recusado` = recusado, `tok_erro` = provedor fora do ar, qualquer outro = aprovado.
+          properties:
+            token: { type: string, example: tok_aprovado }
+            payment_method_id: { type: string, example: visa }
+            installments: { type: integer }
+    Pagamento:
+      type: object
+      properties:
+        id: { type: integer }
+        pedido_id: { type: integer }
+        gateway: { type: string }
+        gateway_id: { type: string }
+        metodo: { type: string }
+        status: { type: string, enum: [PENDENTE, APROVADO, RECUSADO, ESTORNADO] }
+        valor: { type: number }
+        detalhes: { type: object, description: 'PIX: pix_copia_e_cola; recusa: motivo' }
+        status_pedido: { type: string }
+    Produto:
+      type: object
+      required: [categoria_id, nome, preco]
+      properties:
+        categoria_id: { type: integer }
+        nome: { type: string }
+        descricao: { type: string }
+        preco: { type: number, example: 14.9 }
+        ativo: { type: boolean }
+        composicao:
+          type: array
+          description: Ficha técnica (consumo de estoque por unidade vendida)
+          items:
+            type: object
+            properties:
+              item_estoque_id: { type: integer }
+              quantidade: { type: number }
+    Movimentacao:
+      type: object
+      required: [item_estoque_id, tipo, quantidade]
+      properties:
+        unidade_id: { type: integer }
+        item_estoque_id: { type: integer }
+        tipo: { type: string, enum: [ENTRADA, SAIDA, AJUSTE], description: 'AJUSTE: quantidade = saldo contado no inventário' }
+        quantidade: { type: number }
+        custo_total: { type: number, description: 'ENTRADA: lança a compra no fluxo de caixa' }
+        observacao: { type: string }
+
+paths:
+  /health:
+    get:
+      tags: [Sistema]
+      summary: Verifica a disponibilidade da API e do banco
+      security: []
+      responses: { '200': { description: OK }, '503': { description: Banco indisponível } }
+
+  /auth/login:
+    post:
+      tags: [Autenticação]
+      summary: Login de funcionário
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Login' } } } }
+      responses: { '200': { description: Token JWT e permissões }, '401': { $ref: '#/components/responses/Erro' }, '423': { description: Bloqueada após 5 tentativas (15 min) } }
+  /auth/clientes/registro:
+    post:
+      tags: [Autenticação]
+      summary: Cadastro de cliente (exige consentimento LGPD)
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegistroCliente' } } } }
+      responses: { '201': { description: Conta criada + token }, '409': { description: E-mail já cadastrado } }
+  /auth/clientes/login:
+    post:
+      tags: [Autenticação]
+      summary: Login de cliente
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Login' } } } }
+      responses: { '200': { description: Token JWT } }
+  /auth/me:
+    get:
+      tags: [Autenticação]
+      summary: Dados do usuário/cliente logado (inclui permissões)
+      responses: { '200': { description: OK } }
+  /auth/senha:
+    patch:
+      tags: [Autenticação]
+      summary: Trocar a própria senha
+      requestBody: { content: { application/json: { schema: { type: object, properties: { senha_atual: { type: string }, nova_senha: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+
+  /unidades:
+    get:
+      tags: [Unidades e cardápio]
+      summary: Lista as unidades ativas (público)
+      security: []
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Unidades e cardápio]
+      summary: Cria uma unidade (unidades.gerenciar)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { nome: { type: string }, endereco: { type: string }, telefone: { type: string } } } } } }
+      responses: { '201': { description: Criada } }
+  /unidades/{id}:
+    patch:
+      tags: [Unidades e cardápio]
+      summary: Edita/desativa uma unidade (unidades.gerenciar)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+  /unidades/{id}/cardapio:
+    get:
+      tags: [Unidades e cardápio]
+      summary: Cardápio da unidade com disponibilidade em tempo real (público)
+      security: []
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: 'Produtos com o campo `disponivel` calculado pelo estoque' } }
+
+  /usuarios:
+    get:
+      tags: [Usuários e perfis]
+      summary: Lista usuários (usuarios.gerenciar; restrito à unidade)
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { name: busca, in: query, schema: { type: string } }, { $ref: '#/components/parameters/pagina' }, { $ref: '#/components/parameters/limite' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Usuários e perfis]
+      summary: Cria um usuário (não permite atribuir permissões que o criador não tem)
+      requestBody: { content: { application/json: { schema: { type: object, required: [nome, email, senha, perfil_id], properties: { nome: { type: string }, email: { type: string }, senha: { type: string }, perfil_id: { type: integer }, unidade_id: { type: integer, nullable: true } } } } } }
+      responses: { '201': { description: Criado }, '403': { description: Escalonamento de privilégio bloqueado } }
+  /usuarios/{id}:
+    get:
+      tags: [Usuários e perfis]
+      summary: Detalha um usuário
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    patch:
+      tags: [Usuários e perfis]
+      summary: Edita, troca o perfil, redefine a senha ou desativa (efeito imediato)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { nome: { type: string }, perfil_id: { type: integer }, unidade_id: { type: integer }, ativo: { type: boolean }, senha: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+  /perfis:
+    get:
+      tags: [Usuários e perfis]
+      summary: Lista os perfis e suas permissões
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Usuários e perfis]
+      summary: Cria um perfil personalizado (perfis.gerenciar)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { nome: { type: string }, descricao: { type: string }, permissoes: { type: array, items: { type: string } } } }, example: { nome: CAIXA, permissoes: [pedidos.ver, pagamentos.registrar, caixa.lancar] } } } }
+      responses: { '201': { description: Criado } }
+  /perfis/permissoes:
+    get:
+      tags: [Usuários e perfis]
+      summary: Catálogo de permissões disponíveis
+      responses: { '200': { description: OK } }
+  /perfis/{id}:
+    put:
+      tags: [Usuários e perfis]
+      summary: Redefine as permissões de um perfil (ADMIN é protegido)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [Usuários e perfis]
+      summary: Exclui um perfil personalizado sem usuários
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '204': { description: Excluído } }
+
+  /clientes:
+    get:
+      tags: [Clientes]
+      summary: Busca clientes (clientes.ver)
+      parameters: [{ name: busca, in: query, schema: { type: string } }, { $ref: '#/components/parameters/pagina' }, { $ref: '#/components/parameters/limite' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Clientes]
+      summary: Cadastra um cliente no balcão (clientes.gerenciar; exige confirmação de consentimento)
+      requestBody: { content: { application/json: { schema: { type: object, required: [nome, consentimento_termos], properties: { nome: { type: string }, email: { type: string }, telefone: { type: string }, preferencias: { type: object }, consentimento_termos: { type: boolean }, consentimento_marketing: { type: boolean } } } } } }
+      responses: { '201': { description: Criado } }
+  /clientes/{id}:
+    get:
+      tags: [Clientes]
+      summary: Ficha do cliente com total gasto e favoritos (acesso auditado)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    patch:
+      tags: [Clientes]
+      summary: Atualiza contato e preferências
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+  /clientes/{id}/pedidos:
+    get:
+      tags: [Clientes]
+      summary: Histórico de pedidos do cliente
+      parameters: [{ $ref: '#/components/parameters/id' }, { $ref: '#/components/parameters/pagina' }, { $ref: '#/components/parameters/limite' }]
+      responses: { '200': { description: OK } }
+  /me:
+    patch:
+      tags: [Clientes]
+      summary: O cliente atualiza os próprios dados, preferências e consentimento de marketing
+      responses: { '200': { description: OK } }
+  /me/pedidos:
+    get:
+      tags: [Clientes]
+      summary: Histórico de pedidos do cliente logado
+      responses: { '200': { description: OK } }
+
+  /lgpd/politica:
+    get:
+      tags: [LGPD]
+      summary: Política de privacidade (finalidades, bases legais, direitos)
+      security: []
+      responses: { '200': { description: OK } }
+  /lgpd/meus-dados:
+    get:
+      tags: [LGPD]
+      summary: O titular exporta todos os seus dados (acesso/portabilidade)
+      responses: { '200': { description: JSON com dados cadastrais, pedidos e pagamentos } }
+  /lgpd/minha-conta:
+    delete:
+      tags: [LGPD]
+      summary: O titular solicita a eliminação (anonimização; confirma com a senha)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { senha: { type: string } } } } } }
+      responses: { '200': { description: Anonimizado }, '409': { description: Há pedidos em andamento } }
+  /lgpd/clientes/{id}/exportar:
+    get:
+      tags: [LGPD]
+      summary: Exporta os dados de um titular (lgpd.gerenciar)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+  /lgpd/clientes/{id}/anonimizar:
+    post:
+      tags: [LGPD]
+      summary: Anonimiza um titular a pedido (lgpd.gerenciar)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+
+  /categorias:
+    get:
+      tags: [Catálogo]
+      summary: Lista as categorias (público)
+      security: []
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Catálogo]
+      summary: Cria uma categoria (catalogo.gerenciar)
+      responses: { '201': { description: Criada } }
+  /categorias/{id}:
+    patch:
+      tags: [Catálogo]
+      summary: Edita uma categoria
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+  /produtos:
+    get:
+      tags: [Catálogo]
+      summary: Lista os produtos com ficha técnica (público)
+      security: []
+      parameters: [{ name: categoria_id, in: query, schema: { type: integer } }, { name: busca, in: query, schema: { type: string } }, { name: incluir_inativos, in: query, schema: { type: boolean } }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Catálogo]
+      summary: Cria um produto com preço, descrição e ficha técnica (catalogo.gerenciar)
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Produto' } } } }
+      responses: { '201': { description: Criado } }
+  /produtos/{id}:
+    get:
+      tags: [Catálogo]
+      summary: Detalha um produto
+      security: []
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+    patch:
+      tags: [Catálogo]
+      summary: Edita produto, preço ou ficha técnica
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Produto' } } } }
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [Catálogo]
+      summary: Desativa um produto (mantém o histórico de vendas)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '204': { description: Desativado } }
+  /produtos/{id}/imagem:
+    post:
+      tags: [Catálogo]
+      summary: Upload de imagem (JPG/PNG/WEBP até 2 MB, validado pelo conteúdo)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: { type: object, properties: { imagem: { type: string, format: binary } } }
+      responses: { '200': { description: OK } }
+
+  /estoque:
+    get:
+      tags: [Estoque]
+      summary: Posição de estoque (quantidade, reservado, disponível, mínimo)
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { name: abaixo_minimo, in: query, schema: { type: boolean } }]
+      responses: { '200': { description: OK } }
+  /estoque/alertas:
+    get:
+      tags: [Estoque]
+      summary: Itens no estoque mínimo ou abaixo dele, com sugestão de reposição
+      parameters: [{ $ref: '#/components/parameters/unidade' }]
+      responses: { '200': { description: OK } }
+  /estoque/minimo:
+    patch:
+      tags: [Estoque]
+      summary: Define o estoque mínimo de um item na unidade
+      responses: { '200': { description: OK } }
+  /estoque/itens:
+    get:
+      tags: [Estoque]
+      summary: Itens controlados (ingredientes e produtos acabados)
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Estoque]
+      summary: Cadastra um item de estoque (cria a posição em todas as unidades)
+      responses: { '201': { description: Criado } }
+  /estoque/itens/{id}:
+    patch:
+      tags: [Estoque]
+      summary: Edita um item de estoque
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK } }
+  /estoque/movimentacoes:
+    get:
+      tags: [Estoque]
+      summary: Histórico de movimentações (entradas, perdas, ajustes, reservas, baixas)
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { name: item_estoque_id, in: query, schema: { type: integer } }, { name: tipo, in: query, schema: { type: string } }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }, { $ref: '#/components/parameters/pagina' }, { $ref: '#/components/parameters/limite' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Estoque]
+      summary: Registra entrada, saída (perda) ou ajuste de inventário
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Movimentacao' } } } }
+      responses: { '201': { description: Registrada }, '409': { description: Saldo insuficiente ou abaixo do reservado } }
+
+  /pedidos:
+    get:
+      tags: [Pedidos]
+      summary: Lista pedidos (funcionário - da unidade; cliente - os próprios)
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { name: status, in: query, schema: { type: string }, description: 'Um ou mais, separados por vírgula' }, { name: canal, in: query, schema: { type: string } }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }, { $ref: '#/components/parameters/pagina' }, { $ref: '#/components/parameters/limite' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Pedidos]
+      summary: 'Passos 1-2: cria o pedido, verifica a disponibilidade e reserva o estoque'
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NovoPedido' } } } }
+      responses:
+        '201': { description: 'Pedido criado (AGUARDANDO_PAGAMENTO)', content: { application/json: { schema: { $ref: '#/components/schemas/Pedido' } } } }
+        '409': { description: 'Estoque insuficiente (detalhes lista os itens e quantidades)' }
+  /pedidos/{id}:
+    get:
+      tags: [Pedidos]
+      summary: Detalhe com itens, histórico de status e pagamentos
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Pedido' } } } } }
+  /pedidos/{id}/status:
+    patch:
+      tags: [Pedidos]
+      summary: 'Passos 6-7: EM_PREPARO → PRONTO → (SAIU_PARA_ENTREGA) → ENTREGUE'
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [EM_PREPARO, PRONTO, SAIU_PARA_ENTREGA, ENTREGUE] }, observacao: { type: string } } } } } }
+      responses: { '200': { description: OK }, '409': { description: Transição inválida } }
+  /pedidos/{id}/cancelar:
+    post:
+      tags: [Pedidos]
+      summary: Cancela (libera/devolve o estoque e estorna o pagamento, se houver)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { motivo: { type: string } } } } } }
+      responses: { '200': { description: Cancelado }, '502': { description: O estorno falhou; nada foi alterado } }
+  /acompanhamento/{codigo}:
+    get:
+      tags: [Pedidos]
+      summary: 'Passo 7: acompanhamento público pelo código (sem dados pessoais)'
+      security: []
+      parameters: [{ name: codigo, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Status e linha do tempo } }
+  /eventos:
+    get:
+      tags: [Pedidos]
+      summary: Stream em tempo real (SSE) dos pedidos e alertas de estoque da unidade
+      responses: { '200': { description: 'text/event-stream: pedido.criado, pedido.atualizado, estoque.alerta' } }
+
+  /pedidos/{id}/pagamentos:
+    post:
+      tags: [Pagamentos]
+      summary: 'Passos 3-5: solicita o pagamento ao serviço externo e atualiza o pedido'
+      description: |
+        Cartão: resposta imediata (APROVADO → pedido PAGO; RECUSADO → PAGAMENTO_RECUSADO, pode tentar de novo).
+        PIX: retorna PENDENTE + copia-e-cola; a confirmação chega pelo webhook.
+        DINHEIRO: somente funcionário com `pagamentos.registrar`.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NovoPagamento' } } } }
+      responses:
+        '201': { description: Resultado, content: { application/json: { schema: { $ref: '#/components/schemas/Pagamento' } } } }
+        '409': { description: O pedido não está aguardando pagamento }
+        '502': { description: Provedor indisponível; o pedido continua aguardando }
+  /webhooks/pagamentos/{gateway}:
+    post:
+      tags: [Pagamentos]
+      summary: Notificação do provedor (assinatura HMAC obrigatória; idempotente)
+      security: []
+      parameters: [{ name: gateway, in: path, required: true, schema: { type: string, enum: [mock, mercadopago] } }]
+      responses: { '200': { description: Recebido }, '401': { description: Assinatura inválida } }
+  /pagamentos/simulador/{gatewayId}:
+    post:
+      tags: [Pagamentos]
+      summary: '[Somente testes] Simula o banco confirmando/recusando um PIX'
+      security: []
+      parameters: [{ name: gatewayId, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [APROVADO, RECUSADO] } } } } } }
+      responses: { '200': { description: Webhook assinado entregue } }
+
+  /relatorios/dashboard:
+    get:
+      tags: [Relatórios]
+      summary: Indicadores do dia, pedidos em andamento, alertas e últimos 7 dias
+      parameters: [{ $ref: '#/components/parameters/unidade' }]
+      responses: { '200': { description: OK } }
+  /relatorios/vendas:
+    get:
+      tags: [Relatórios]
+      summary: Vendas por dia, produto, categoria, canal, forma de pagamento e unidade
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }, { $ref: '#/components/parameters/formato' }]
+      responses: { '200': { description: 'JSON ou CSV (formato=csv)' } }
+  /relatorios/fluxo-caixa:
+    get:
+      tags: [Relatórios]
+      summary: Entradas, saídas, saldo diário e acumulado
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }, { $ref: '#/components/parameters/formato' }]
+      responses: { '200': { description: OK } }
+  /relatorios/estoque:
+    get:
+      tags: [Relatórios]
+      summary: Movimentação, consumo médio diário e dias de cobertura por item
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }, { $ref: '#/components/parameters/formato' }]
+      responses: { '200': { description: OK } }
+
+  /caixa/lancamentos:
+    get:
+      tags: [Caixa e auditoria]
+      summary: Lançamentos de caixa (relatorios.ver)
+      parameters: [{ $ref: '#/components/parameters/unidade' }, { name: tipo, in: query, schema: { type: string, enum: [ENTRADA, SAIDA] } }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Caixa e auditoria]
+      summary: Lançamento manual (despesa, sangria, suprimento...) - vendas só entram pelo pagamento
+      requestBody: { content: { application/json: { schema: { type: object, properties: { tipo: { type: string, enum: [ENTRADA, SAIDA] }, categoria: { type: string, enum: [COMPRA_INSUMOS, DESPESA, SUPRIMENTO, SANGRIA, OUTROS] }, valor: { type: number }, forma_pagamento: { type: string }, descricao: { type: string } } } } } }
+      responses: { '201': { description: Criado } }
+  /auditoria:
+    get:
+      tags: [Caixa e auditoria]
+      summary: Trilha de auditoria (auditoria.ver)
+      parameters: [{ name: acao, in: query, schema: { type: string } }, { name: entidade, in: query, schema: { type: string } }, { name: ator_tipo, in: query, schema: { type: string } }, { $ref: '#/components/parameters/inicio' }, { $ref: '#/components/parameters/fim' }]
+      responses: { '200': { description: OK } }

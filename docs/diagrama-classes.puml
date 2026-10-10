@@ -1,0 +1,64 @@
+
+@startuml
+title Raízes do Nordeste - Diagrama de Classes
+
+class Unidade {
+  id
+  nome
+  endereco
+}
+
+class Usuario {
+  id
+  nome
+  email
+  senha
+}
+
+class Cliente {
+  id
+  nome
+  email
+  telefone
+}
+
+class Categoria {
+  id
+  nome
+}
+
+class Produto {
+  id
+  nome
+  preco
+  ativo
+}
+
+class Pedido {
+  id
+  status
+  valor_total
+  criado_em
+}
+
+class ItemPedido {
+  quantidade
+  preco_unitario
+}
+
+class Pagamento {
+  id
+  metodo
+  status
+  valor
+}
+
+Unidade "1" -- "0..*" Usuario
+Unidade "1" -- "0..*" Pedido
+Cliente "0..1" -- "0..*" Pedido
+Categoria "1" -- "0..*" Produto
+Pedido "1" -- "1..*" ItemPedido
+Produto "1" -- "0..*" ItemPedido
+Pedido "1" -- "0..*" Pagamento
+
+@enduml

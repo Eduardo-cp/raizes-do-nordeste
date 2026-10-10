@@ -1,0 +1,62 @@
+
+@startuml
+left to right direction
+title Raízes do Nordeste - Diagrama de Casos de Uso
+
+actor Cliente
+actor Atendente
+actor Cozinha
+actor Gerente
+actor Administrador
+actor "Sistema de Pagamento" as Pagamento
+
+rectangle "Sistema Raízes do Nordeste" {
+  usecase "Consultar cardápio" as U1
+  usecase "Realizar pedido" as U2
+  usecase "Pagar pedido" as U3
+  usecase "Acompanhar pedido" as U4
+  usecase "Gerenciar dados pessoais" as U5
+
+  usecase "Registrar pedido no balcão" as U6
+  usecase "Consultar pedidos" as U7
+  usecase "Atualizar status do pedido" as U8
+
+  usecase "Gerenciar produtos e categorias" as U9
+  usecase "Gerenciar estoque" as U10
+  usecase "Consultar relatórios" as U11
+  usecase "Gerenciar usuários" as U12
+  usecase "Gerenciar perfis e permissões" as U13
+  usecase "Gerenciar unidades" as U14
+  usecase "Consultar auditoria" as U15
+  usecase "Atender solicitações LGPD" as U16
+}
+
+Cliente --> U1
+Cliente --> U2
+Cliente --> U3
+Cliente --> U4
+Cliente --> U5
+Pagamento --> U3
+
+Atendente --> U6
+Atendente --> U7
+Atendente --> U8
+
+Cozinha --> U7
+Cozinha --> U8
+
+Gerente --> U7
+Gerente --> U9
+Gerente --> U10
+Gerente --> U11
+
+Administrador --> U9
+Administrador --> U10
+Administrador --> U11
+Administrador --> U12
+Administrador --> U13
+Administrador --> U14
+Administrador --> U15
+Administrador --> U16
+
+@enduml
